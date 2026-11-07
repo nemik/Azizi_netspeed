@@ -5,6 +5,6 @@
             "type": "view",
             "path": "azizi_netspeed/monitor"
         },
-        "order": 1
+        "order": 99
     }
 }

@@ -333,6 +333,7 @@ return L.view.extend({
                 '.tag.sched { background: rgba(3,169,244,0.15); color: #03a9f4; border: 1px solid rgba(3,169,244,0.25); display: inline-block; margin-right: 5px; margin-top: 5px; padding: 3px 8px; border-radius: 20px;}',
                 '.btn-qos { background: transparent; border: 1px solid var(--az-border); color: var(--az-text-main); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight:bold; transition: 0.2s; }',
                 '.btn-qos:hover { background: #9c27b0; color: white; border-color: #9c27b0; }',
+                '.btn-qos.active { background: #9c27b0; color: white; border-color: #9c27b0; }',
                 '.y-wrapper { background: var(--az-bg-card); border: 1px solid var(--az-border); border-radius: 12px; margin-bottom: 30px; overflow: hidden; transition: all 0.3s; }',
                 '.y-header { padding: 16px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; background: var(--az-y-header); transition: 0.2s; user-select: none; }',
                 '.y-header:hover { opacity: 0.85; }',
@@ -402,18 +403,22 @@ return L.view.extend({
                 ])
             ]),
 
-            // DEVELOPER CREDIT FOOTER
-            E('div', {  'style': 'margin-top:40px; padding:20px; border-top:1px solid #333; text-align:center; font-size:0.85rem; color:#777; line-height:1.6;' }, [
-                E('div', {}, [ E('strong', { 'style': 'color:#eee' }, 'Azizi_NetSpeed'), ' project' ]),
-                E('div', {}, [ 'Developed by ', E('span', { 'style': 'color:#ffd700; font-weight:bold;' }, 'Mohammad Azizi') ]),
-                E('a', { 
-                    'href': 'https://github.com/Mohammad-Azizi/Azizi_netspeed', 'target': '_blank',
-                    'style': 'color:#4caf50; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; margin-top:12px; border:1px solid #444; padding:6px 16px; border-radius:20px; background:#222; gap:8px;'
-                }, [
-                    E('img', { 'src': L.resource('view/azizi_netspeed/icons/github.svg'), 'width': 16, 'height': 16, 'style': 'filter: invert(58%) sepia(13%) saturate(1200%) hue-rotate(76deg) brightness(95%) contrast(80%);', 'class': 'middle' }),
-                    _('Follow on GitHub')
+            E('div', { 'class': 'table-box' }, [
+                E('div', { 'style': 'padding: 15px; border-bottom: 1px solid var(--az-border); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;' }, [
+                    E('h3', { 'style': 'margin: 0; color: var(--az-text-main); font-size: 1.1rem;' }, _('🏆 Top Devices by Data Used')),
+                    E('div', { 'style': 'display: flex; gap: 6px;' }, this.TOP_WINDOWS.map(function(w) {
+                        return E('button', {
+                            'class': 'btn-qos top-win' + (w[0] === self.topWindow ? ' active' : ''),
+                            'data-win': w[0],
+                            'click': function() { self.topWindow = w[0]; self.renderTop(); }
+                        }, w[1]);
+                    }))
+                ]),
+                E('table', { 'class': 'device-table' }, [
+                    E('thead', {}, E('tr', {}, [ E('th', { 'style': 'width: 40px;' }, '#'), E('th', {}, _('Device')), E('th', {}, _('Download')), E('th', {}, _('Upload')), E('th', {}, _('Total')) ])),
+                    E('tbody', { 'id': 'top_body' })
                 ])
-            ])
+            ]),
         ]);
 
         L.Poll.add(L.bind(function() {
@@ -423,14 +428,51 @@ return L.view.extend({
                 L.resolveDefault(L.fs.exec('/usr/sbin/nft', ['-j', 'list', 'set', 'inet', 'fw4', 'down_per_ip']), {}),
                 L.resolveDefault(L.fs.exec('/bin/date', ['+%Y-%m-%d %H:%M:%S']), {}),
                 L.resolveDefault(L.fs.read('/root/azizi_netspeed/usage/hosts.json'), '{}'),
-                L.resolveDefault(L.fs.read('/root/azizi_netspeed/bwlimit/limits.json'), '{}')
-            ]).then(L.bind(function(r) { this.updateUI(r[0], r[1], r[2], r[3], r[4], r[5]); }, this));
+                L.resolveDefault(L.fs.read('/root/azizi_netspeed/bwlimit/limits.json'), '{}'),
+                L.resolveDefault(L.fs.read('/tmp/azizi_netspeed/top.json'), '{}')
+            ]).then(L.bind(function(r) { this.updateUI(r[0], r[1], r[2], r[3], r[4], r[5], r[6]); }, this));
         }, this), 3);
 
         return m;
     },
 
-    updateUI: function(hints, upRes, downRes, dateRes, savedHostsStr, limitsStr) {
+    TOP_WINDOWS: [ [ '5m', '5 min' ], [ '1h', '1 hour' ], [ '1d', '24 hours' ] ],
+    TOP_LIMIT: 10,
+    topWindow: '5m',
+    topData: {},
+    topFindInfo: null,
+
+    // Data comes from azizi_netspeed_sample.sh, which cron runs every minute
+    renderTop: function() {
+        var self = this;
+        var body = document.getElementById('top_body');
+        if (!body) return;
+
+        document.querySelectorAll('.top-win').forEach(function(b) {
+            b.classList.toggle('active', b.getAttribute('data-win') === self.topWindow);
+        });
+
+        var win = this.topData[this.topWindow] || {};
+        var ips = Object.keys(win).sort(function(a, b) { return (win[b][0] + win[b][1]) - (win[a][0] + win[a][1]); });
+        var grand = ips.reduce(function(s, ip) { return s + win[ip][0] + win[ip][1]; }, 0);
+
+        var rows = ips.slice(0, this.TOP_LIMIT).map(function(ip, i) {
+            var up = win[ip][0], down = win[ip][1], info = self.topFindInfo ? self.topFindInfo(ip) : { name: ip, mac: '—' };
+            var share = grand > 0 ? ((up + down) / grand * 100).toFixed(1) + '%' : '';
+            return E('tr', {}, [
+                E('td', { 'style': 'color: var(--az-text-muted); font-weight: 600;' }, String(i + 1)),
+                E('td', {}, [ E('div', {}, E('span', { 'class': 'hostname' }, info.name)), E('span', { 'class': 'info-sub' }, ip + ' | ' + info.mac) ]),
+                E('td', {}, E('span', { 'style': 'color:#4caf50' }, '↓ ' + self.bytes_label(down))),
+                E('td', {}, E('span', { 'style': 'color:#ff9800' }, '↑ ' + self.bytes_label(up))),
+                E('td', {}, [ E('strong', { 'style': 'color:#ffd700' }, self.bytes_label(up + down)), E('div', { 'class': 'info-sub' }, share) ])
+            ]);
+        });
+        if (rows.length === 0) rows.push(E('tr', {}, E('td', { 'colspan': '5', 'style': 'text-align:center; padding: 20px; color: var(--az-text-muted);' }, _('No data yet. Usage is sampled once a minute.'))));
+
+        L.dom.content(body, rows);
+    },
+
+    updateUI: function(hints, upRes, downRes, dateRes, savedHostsStr, limitsStr, topStr) {
         var self = this;
         var el = document.getElementById('sys_time_el');
         if (el) el.innerText = (dateRes && dateRes.stdout) ? dateRes.stdout.trim() : '...';
@@ -455,6 +497,10 @@ return L.view.extend({
             if ((!host || host.name === ip) && savedHosts[ip]) host = { name: savedHosts[ip].name || ip, mac: savedHosts[ip].mac || '\u2014' };
             return { name: (host && host.name) ? host.name : ip, mac: (host && host.mac) ? host.mac : '\u2014' };
         };
+
+        try { self.topData = typeof topStr === 'string' ? JSON.parse(topStr) : {}; } catch(e) { self.topData = {}; }
+        self.topFindInfo = findInfo;
+        self.renderTop();
 
         var qosRows = [];
         Object.keys(limits).forEach(function(target) {

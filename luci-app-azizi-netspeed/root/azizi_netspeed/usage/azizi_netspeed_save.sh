@@ -32,6 +32,9 @@ mv "$TMP_UP" "$UP_FILE"
 mv "$TMP_DOWN" "$DOWN_FILE"
 mv "$TMP_HOSTS" "$HOSTS_FILE"
 
+# Record the last minute of usage before the counters are cleared
+/root/azizi_netspeed/usage/azizi_netspeed_sample.sh
+
 # Reset counters
 nft flush set inet fw4 up_per_ip 2>/dev/null
 nft flush set inet fw4 down_per_ip 2>/dev/null

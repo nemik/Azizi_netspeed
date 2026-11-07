@@ -1,9 +1,10 @@
 #!/bin/bash
+set -e
 
 # Configuration
 PKG_NAME="luci-app-azizi-netspeed"
-PKG_VER="3.0"
-SRC_DIR="/sdcard/luci-app-azizi-netspeed/luci-app-azizi-netspeed"
+PKG_VER="3.1"
+SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 TEMP_DIR="$HOME/ipk_temp2"
 
 echo "Building $PKG_NAME v$PKG_VER ..."
@@ -43,6 +44,7 @@ cp "$SRC_DIR/usr/share/luci/menu.d/luci-app-azizi-netspeed.json" "$TEMP_DIR/usr/
 
 
 cp "$SRC_DIR/root/azizi_netspeed/usage/azizi_netspeed_save.sh" "$TEMP_DIR/root/azizi_netspeed/usage/"
+cp "$SRC_DIR/root/azizi_netspeed/usage/azizi_netspeed_sample.sh" "$TEMP_DIR/root/azizi_netspeed/usage/"
 
 cp "$SRC_DIR/root/azizi_netspeed/bwlimit/apply_limits.sh" "$TEMP_DIR/root/azizi_netspeed/bwlimit/"
 
@@ -80,6 +82,7 @@ cat <<'EOF' > "$TEMP_DIR/CONTROL/postinst"
 if [ -z "$IPKG_INSTROOT" ]; then
     echo "Setting file permissions..."
     chmod 755 /root/azizi_netspeed/usage/azizi_netspeed_save.sh
+    chmod 755 /root/azizi_netspeed/usage/azizi_netspeed_sample.sh
     chmod 755 /root/azizi_netspeed/bwlimit/apply_limits.sh
     chmod 755 /etc/nftables.d/azizi_monitor.nft
     
@@ -90,8 +93,18 @@ if [ -z "$IPKG_INSTROOT" ]; then
         echo "59 23 * * * /root/azizi_netspeed/usage/azizi_netspeed_save.sh" >> /etc/crontabs/root
         /etc/init.d/cron restart
     fi
+
+    # Per-minute sampler for the top-devices table
+    if ! grep -q "azizi_netspeed_sample.sh" /etc/crontabs/root 2>/dev/null; then
+        echo "* * * * * /root/azizi_netspeed/usage/azizi_netspeed_sample.sh" >> /etc/crontabs/root
+        /etc/init.d/cron restart
+    fi
   
   /etc/init.d/firewall restart
+
+    # Load the new ACL and menu entries
+    rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache
+    /etc/init.d/rpcd reload
 
 fi
 exit 0
@@ -124,6 +137,8 @@ if [ -z "$IPKG_INSTROOT" ]; then
 
     # SAFELY Remove our specific cron job without touching user's other jobs
     sed -i '/azizi_netspeed_save.sh/d' /etc/crontabs/root
+    sed -i '/azizi_netspeed_sample.sh/d' /etc/crontabs/root
+    rm -rf /tmp/azizi_netspeed
     /etc/init.d/cron restart
     
     echo "azizi_netspeed cleanup complete."
@@ -147,6 +162,8 @@ find "$TEMP_DIR"      -type d -exec chmod 755 {} +
 # =============================================
 # BUILD THE IPK
 # =============================================
+# Keep macOS tar from adding ._ metadata files
+export COPYFILE_DISABLE=1
 cd "$TEMP_DIR" || exit 1
 tar --owner=0 --group=0 --numeric-owner -czf ../data.tar.gz --exclude=CONTROL .
 cd CONTROL || exit 1
